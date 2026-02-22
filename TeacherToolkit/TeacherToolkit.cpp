@@ -11,8 +11,8 @@
 #define MAX_LOADSTRING 100
 
 // Version
-#define APP_VERSION       L"0.1.0"
-#define APP_VERSION_A      "0.1.0"
+#define APP_VERSION       L"0.1.1"
+#define APP_VERSION_A      "0.1.1"
 
 // Timer IDs
 #define IDT_MONITOR_POLL    1
@@ -25,7 +25,7 @@
 
 // Intervals
 #define MONITOR_POLL_MS  2000
-#define MIRROR_FPS_MS    16     // ~60 fps
+#define MIRROR_FPS_MS    33     // ~30 fps (reduzido de 60 para diminuir carga)
 #define EXTEND_RETRY_MS  1000   // retry checking after extend
 
 // Registry key for update preferences
@@ -51,7 +51,6 @@ BOOL g_bExtendPending = FALSE;
 int  g_nExtendRetries = 0;
 RECT g_rcSecond  = {};
 RECT g_rcPrimary = {};
-HHOOK g_hMouseHook = nullptr;
 HDEVNOTIFY g_hDevNotify = nullptr;
 HANDLE g_hMutex = nullptr;
 
@@ -74,7 +73,6 @@ ATOM                RegisterMirrorClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    HiddenWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    MirrorWndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK    LowLevelMouseProc(int, WPARAM, LPARAM);
 
 void AddTrayIcon(HWND hWnd);
 void RemoveTrayIcon();
@@ -86,8 +84,6 @@ void StopMirroring();
 void FreeMirrorResources();
 void TryExtendAndMirror();
 BOOL SetExtendMode();
-void InstallMouseHook();
-void RemoveMouseHook();
 void CheckMonitorState();
 void RegisterForDeviceNotifications(HWND hWnd);
 void UnregisterDeviceNotifications();
@@ -834,45 +830,19 @@ static void UpdateStartupExeIfNeeded()
     }
 }
 
-// — Mouse hook — snap cursor back to primary ——————————————————————————
-void InstallMouseHook()
+// — ClipCursor — restrict cursor to primary monitor —----------------------------------------------
+void ClipCursorToPrimary(BOOL clip)
 {
-    if (!g_hMouseHook) {
-        g_hMouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc,
-                                        hInst, 0);
+    if (clip) {
+        RECT rc;
+        rc.left   = g_rcPrimary.left;
+        rc.top    = g_rcPrimary.top;
+        rc.right  = g_rcPrimary.right;
+        rc.bottom = g_rcPrimary.bottom;
+        ClipCursor(&rc);
+    } else {
+        ClipCursor(nullptr);
     }
-}
-
-void RemoveMouseHook()
-{
-    if (g_hMouseHook) {
-        UnhookWindowsHookEx(g_hMouseHook);
-        g_hMouseHook = nullptr;
-    }
-}
-
-LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam)
-{
-    if (nCode >= 0 && g_bProjecting) {
-        MSLLHOOKSTRUCT* pMouse = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
-        POINT pt = pMouse->pt;
-
-        if (pt.x >= g_rcSecond.left && pt.x < g_rcSecond.right &&
-            pt.y >= g_rcSecond.top  && pt.y < g_rcSecond.bottom) {
-
-            LONG cx = pt.x;
-            LONG cy = pt.y;
-
-            if (cx < g_rcPrimary.left)   cx = g_rcPrimary.left;
-            if (cx >= g_rcPrimary.right)  cx = g_rcPrimary.right - 1;
-            if (cy < g_rcPrimary.top)     cy = g_rcPrimary.top;
-            if (cy >= g_rcPrimary.bottom) cy = g_rcPrimary.bottom - 1;
-
-            SetCursorPos(cx, cy);
-            return 1;
-        }
-    }
-    return CallNextHookEx(g_hMouseHook, nCode, wParam, lParam);
 }
 
 // — Mirror start / stop ———————————————————————————————————————————————
@@ -902,13 +872,18 @@ void StartMirroring()
     SetTimer(g_hMirror, IDT_MIRROR_REFRESH, MIRROR_FPS_MS, nullptr);
 
     g_bProjecting = TRUE;
-    InstallMouseHook();
+    
+    // Confine cursor to primary monitor instead of using hook
+    ClipCursor(&g_rcPrimary);
 }
 
 void StopMirroring()
 {
     if (!g_bProjecting) return;
-    RemoveMouseHook();
+    
+    // Release cursor clipping
+    ClipCursor(nullptr);
+    
     if (g_hMirror) {
         KillTimer(g_hMirror, IDT_MIRROR_REFRESH);
         DestroyWindow(g_hMirror);
@@ -983,7 +958,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         DispatchMessage(&msg);
     }
 
-    RemoveMouseHook();
+    ClipCursor(nullptr);
     UnregisterDeviceNotifications();
     RemoveTrayIcon();
     if (g_hMutex) { ReleaseMutex(g_hMutex); CloseHandle(g_hMutex); }
