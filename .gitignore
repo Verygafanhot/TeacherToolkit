@@ -1,0 +1,14 @@
+# Build output
+*.obj
+*.pdb
+*.exe
+*.ilk
+*.idb
+*.log
+*.tlog/
+Debug/
+Release/
+x64/
+.vs/
+*.user
+~AutoRecover.*
