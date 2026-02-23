@@ -51,7 +51,6 @@ BOOL g_bExtendPending = FALSE;
 int  g_nExtendRetries = 0;
 RECT g_rcSecond  = {};
 RECT g_rcPrimary = {};
-BOOL g_bMirrorOnPrimary = FALSE;
 HDEVNOTIFY g_hDevNotify = nullptr;
 HANDLE g_hMutex = nullptr;
 
@@ -84,7 +83,7 @@ void StartMirroring();
 void StopMirroring();
 void FreeMirrorResources();
 BOOL IsSecondScreenOccupiedByOtherApp();
-void UpdateMirrorPlacement();
+void MoveOtherWindowsToPrimaryFromSecond();
 void TryExtendAndMirror();
 BOOL SetExtendMode();
 void CheckMonitorState();
@@ -396,8 +395,17 @@ BOOL HasSecondMonitor(RECT* rcPrimary, RECT* rcSecond)
 
 struct WindowEnumData {
     RECT rcSecond;
+    RECT rcPrimary;
+    BOOL moveWindows;
     BOOL occupied;
 };
+
+static int ClampToRange(int value, int minVal, int maxVal)
+{
+    if (value < minVal) return minVal;
+    if (value > maxVal) return maxVal;
+    return value;
+}
 
 static BOOL CALLBACK EnumWindowsOnSecondMonitorProc(HWND hWnd, LPARAM lParam)
 {
@@ -442,6 +450,32 @@ static BOOL CALLBACK EnumWindowsOnSecondMonitorProc(HWND hWnd, LPARAM lParam)
         return TRUE;
 
     data->occupied = TRUE;
+
+    if (data->moveWindows) {
+        int winW = rcWindow.right - rcWindow.left;
+        int winH = rcWindow.bottom - rcWindow.top;
+        int primaryW = data->rcPrimary.right - data->rcPrimary.left;
+        int primaryH = data->rcPrimary.bottom - data->rcPrimary.top;
+
+        if (winW <= 0 || winH <= 0 || primaryW <= 0 || primaryH <= 0)
+            return TRUE;
+
+        if (winW > primaryW) winW = primaryW;
+        if (winH > primaryH) winH = primaryH;
+
+        int targetX = data->rcPrimary.left + (rcWindow.left - data->rcSecond.left);
+        int targetY = data->rcPrimary.top + (rcWindow.top - data->rcSecond.top);
+
+        int maxX = data->rcPrimary.right - winW;
+        int maxY = data->rcPrimary.bottom - winH;
+        targetX = ClampToRange(targetX, data->rcPrimary.left, maxX);
+        targetY = ClampToRange(targetY, data->rcPrimary.top, maxY);
+
+        SetWindowPos(hWnd, nullptr,
+                     targetX, targetY, winW, winH,
+                     SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER);
+    }
+
     return FALSE;
 }
 
@@ -449,8 +483,19 @@ BOOL IsSecondScreenOccupiedByOtherApp()
 {
     WindowEnumData data = {};
     data.rcSecond = g_rcSecond;
+    data.rcPrimary = g_rcPrimary;
+    data.moveWindows = FALSE;
     EnumWindows(EnumWindowsOnSecondMonitorProc, reinterpret_cast<LPARAM>(&data));
     return data.occupied;
+}
+
+void MoveOtherWindowsToPrimaryFromSecond()
+{
+    WindowEnumData data = {};
+    data.rcSecond = g_rcSecond;
+    data.rcPrimary = g_rcPrimary;
+    data.moveWindows = TRUE;
+    EnumWindows(EnumWindowsOnSecondMonitorProc, reinterpret_cast<LPARAM>(&data));
 }
 
 // Count how many physical displays are connected (including inactive ones)
@@ -627,7 +672,7 @@ void CheckMonitorState()
         }
         StartMirroring();
     } else if (secondNow && g_bProjecting) {
-        UpdateMirrorPlacement();
+        MoveOtherWindowsToPrimaryFromSecond();
     } else if (!secondNow && !g_bProjecting && !g_bExtendPending) {
         if (CountPhysicalDisplays() >= 2) {
             TryExtendAndMirror();
@@ -914,13 +959,10 @@ void StartMirroring()
 {
     if (g_bProjecting) return;
 
-    BOOL moveToPrimary = IsSecondScreenOccupiedByOtherApp();
-    const RECT& target = moveToPrimary ? g_rcPrimary : g_rcSecond;
-
-    int x = target.left;
-    int y = target.top;
-    int w = target.right  - target.left;
-    int h = target.bottom - target.top;
+    int x = g_rcSecond.left;
+    int y = g_rcSecond.top;
+    int w = g_rcSecond.right  - g_rcSecond.left;
+    int h = g_rcSecond.bottom - g_rcSecond.top;
     if (w <= 0 || h <= 0) return;
 
     g_hMirror = CreateWindowExW(
@@ -932,42 +974,16 @@ void StartMirroring()
 
     if (!g_hMirror) return;
 
-    SetWindowPos(g_hMirror, moveToPrimary ? HWND_NOTOPMOST : HWND_TOPMOST,
+    SetWindowPos(g_hMirror, HWND_TOPMOST,
                  x, y, w, h,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
     SetTimer(g_hMirror, IDT_MIRROR_REFRESH, MIRROR_FPS_MS, nullptr);
 
     g_bProjecting = TRUE;
-    g_bMirrorOnPrimary = moveToPrimary;
     
     // Confine cursor to primary monitor instead of using hook
     ClipCursor(&g_rcPrimary);
-}
-
-void UpdateMirrorPlacement()
-{
-    if (!g_bProjecting || !g_hMirror)
-        return;
-
-    BOOL shouldMoveToPrimary = IsSecondScreenOccupiedByOtherApp();
-    if (shouldMoveToPrimary == g_bMirrorOnPrimary)
-        return;
-
-    const RECT& target = shouldMoveToPrimary ? g_rcPrimary : g_rcSecond;
-    int x = target.left;
-    int y = target.top;
-    int w = target.right  - target.left;
-    int h = target.bottom - target.top;
-    if (w <= 0 || h <= 0)
-        return;
-
-    SetWindowPos(g_hMirror,
-                 shouldMoveToPrimary ? HWND_NOTOPMOST : HWND_TOPMOST,
-                 x, y, w, h,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
-
-    g_bMirrorOnPrimary = shouldMoveToPrimary;
 }
 
 void StopMirroring()
@@ -984,7 +1000,6 @@ void StopMirroring()
     }
     FreeMirrorResources();
     g_bProjecting = FALSE;
-    g_bMirrorOnPrimary = FALSE;
 }
 
 void FreeMirrorResources()
@@ -1236,7 +1251,7 @@ LRESULT CALLBACK MirrorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
     {
     case WM_TIMER:
         if (wParam == IDT_MIRROR_REFRESH) {
-            UpdateMirrorPlacement();
+            MoveOtherWindowsToPrimaryFromSecond();
 
             // Capture and blit directly � skip InvalidateRect/WM_PAINT overhead
             int srcW = g_rcPrimary.right  - g_rcPrimary.left;
