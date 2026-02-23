@@ -11,8 +11,8 @@
 #define MAX_LOADSTRING 100
 
 // Version
-#define APP_VERSION       L"0.1.1"
-#define APP_VERSION_A      "0.1.1"
+#define APP_VERSION       L"0.1.2"
+#define APP_VERSION_A      "0.1.2"
 
 // Timer IDs
 #define IDT_MONITOR_POLL    1
@@ -51,6 +51,7 @@ BOOL g_bExtendPending = FALSE;
 int  g_nExtendRetries = 0;
 RECT g_rcSecond  = {};
 RECT g_rcPrimary = {};
+BOOL g_bMirrorOnPrimary = FALSE;
 HDEVNOTIFY g_hDevNotify = nullptr;
 HANDLE g_hMutex = nullptr;
 
@@ -82,6 +83,8 @@ int  CountPhysicalDisplays();
 void StartMirroring();
 void StopMirroring();
 void FreeMirrorResources();
+BOOL IsSecondScreenOccupiedByOtherApp();
+void UpdateMirrorPlacement();
 void TryExtendAndMirror();
 BOOL SetExtendMode();
 void CheckMonitorState();
@@ -106,7 +109,7 @@ BOOL GetStartupShortcutPath(WCHAR* buf, DWORD cch);
 BOOL FilesMatchByHash(const WCHAR* path1, const WCHAR* path2);
 BOOL ComputeFileHash(const WCHAR* path, BYTE* hashOut, DWORD hashSize);
 
-// — Config loading ————————————————————————————————————————————————————
+// ï¿½ Config loading ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 // TrimWhitespace() removed - now done by the parser
 
 // Parse a value from an INI-style buffer: looks for "key=" and returns
@@ -168,7 +171,7 @@ void LoadLocalConfig()
     ParseIniValue(data, dataLen, "github_repo", g_szGitHubRepo, ARRAYSIZE(g_szGitHubRepo));
 }
 
-// — Version comparison ————————————————————————————————————————————————
+// ï¿½ Version comparison ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 // Returns TRUE if remote > local (simple major.minor.patch comparison)
 BOOL IsVersionNewer(const char* remote, const char* local)
 {
@@ -182,7 +185,7 @@ BOOL IsVersionNewer(const char* remote, const char* local)
     return rPat > lPat;
 }
 
-// — Registry helpers for skipped version ——————————————————————————————
+// ï¿½ Registry helpers for skipped version ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 BOOL IsVersionSkipped(const WCHAR* version)
 {
     HKEY hKey;
@@ -212,7 +215,7 @@ void SetVersionSkipped(const WCHAR* version)
     }
 }
 
-// — Update check (GitHub API) —————————————————————————————————————————
+// ï¿½ Update check (GitHub API) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 // Fetches /repos/{owner}/{repo}/releases/latest from the GitHub API.
 // Parses "tag_name" from the JSON response to get the latest version.
 BOOL CheckForUpdate()
@@ -289,13 +292,13 @@ void PromptUpdate(HWND hWnd)
 
     WCHAR content[512];
     StringCchPrintfW(content, ARRAYSIZE(content),
-        L"Versão atual: v%s\nNova versão: v%s",
+        L"Versï¿½o atual: v%s\nNova versï¿½o: v%s",
         APP_VERSION, g_szLatestVer);
 
     TASKDIALOG_BUTTON buttons[] = {
         { IDB_UPDATE_DOWNLOAD, L"Transferir agora" },
         { IDB_UPDATE_LATER,    L"Lembrar mais tarde" },
-        { IDB_UPDATE_SKIP,     L"Não quero!" },
+        { IDB_UPDATE_SKIP,     L"Nï¿½o quero!" },
     };
 
     TASKDIALOGCONFIG tdc = {};
@@ -303,8 +306,8 @@ void PromptUpdate(HWND hWnd)
     tdc.hwndParent       = hWnd;
     tdc.hInstance        = hInst;
     tdc.dwFlags          = TDF_USE_HICON_MAIN | TDF_ALLOW_DIALOG_CANCELLATION;
-    tdc.pszWindowTitle   = L"TeacherToolkit — Atualização";
-    tdc.pszMainInstruction = L"Atualização disponível!";
+    tdc.pszWindowTitle   = L"TeacherToolkit ï¿½ Atualizaï¿½ï¿½o";
+    tdc.pszMainInstruction = L"Atualizaï¿½ï¿½o disponï¿½vel!";
     tdc.pszContent       = content;
     tdc.cButtons         = ARRAYSIZE(buttons);
     tdc.pButtons         = buttons;
@@ -327,17 +330,17 @@ void PromptUpdate(HWND hWnd)
     // IDB_UPDATE_LATER / dialog closed = do nothing, ask again next launch
 }
 
-// — About dialog ——————————————————————————————————————————————————————
+// ï¿½ About dialog ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void ShowAboutDialog(HWND hWnd)
 {
     WCHAR msg[512];
     if (g_szAuthor[0] != L'\0') {
         StringCchPrintfW(msg, ARRAYSIZE(msg),
-            L"TeacherToolkit\nVersão %s\n\nDesenvolvido por %s",
+            L"TeacherToolkit\nVersï¿½o %s\n\nDesenvolvido por %s",
             APP_VERSION, g_szAuthor);
     } else {
         StringCchPrintfW(msg, ARRAYSIZE(msg),
-            L"TeacherToolkit\nVersão %s",
+            L"TeacherToolkit\nVersï¿½o %s",
             APP_VERSION);
     }
 
@@ -346,13 +349,13 @@ void ShowAboutDialog(HWND hWnd)
     mbp.hwndOwner    = hWnd;
     mbp.hInstance    = hInst;
     mbp.lpszText     = msg;
-    mbp.lpszCaption  = L"Sobre — TeacherToolkit";
+    mbp.lpszCaption  = L"Sobre ï¿½ TeacherToolkit";
     mbp.dwStyle      = MB_OK | MB_USERICON;
     mbp.lpszIcon     = MAKEINTRESOURCEW(IDI_TEACHERTOOLKIT);
     MessageBoxIndirectW(&mbp);
 }
 
-// — Monitor enumeration ———————————————————————————————————————————————
+// ï¿½ Monitor enumeration ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 struct MonitorEnumData {
     int   count;
     RECT  rcPrimary;
@@ -389,6 +392,65 @@ BOOL HasSecondMonitor(RECT* rcPrimary, RECT* rcSecond)
         return TRUE;
     }
     return FALSE;
+}
+
+struct WindowEnumData {
+    RECT rcSecond;
+    BOOL occupied;
+};
+
+static BOOL CALLBACK EnumWindowsOnSecondMonitorProc(HWND hWnd, LPARAM lParam)
+{
+    auto* data = reinterpret_cast<WindowEnumData*>(lParam);
+    if (!data) return FALSE;
+
+    if (hWnd == g_hMirror || hWnd == g_hHidden)
+        return TRUE;
+
+    if (!IsWindowVisible(hWnd) || IsIconic(hWnd))
+        return TRUE;
+
+    LONG_PTR style = GetWindowLongPtrW(hWnd, GWL_STYLE);
+    LONG_PTR exStyle = GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
+    if (style & WS_CHILD)
+        return TRUE;
+    if (exStyle & WS_EX_TOOLWINDOW)
+        return TRUE;
+    if (GetWindow(hWnd, GW_OWNER) != nullptr)
+        return TRUE;
+
+    WCHAR className[64] = {};
+    GetClassNameW(hWnd, className, ARRAYSIZE(className));
+    if (wcscmp(className, L"Progman") == 0 ||
+        wcscmp(className, L"WorkerW") == 0 ||
+        wcscmp(className, L"Shell_TrayWnd") == 0 ||
+        wcscmp(className, L"Shell_SecondaryTrayWnd") == 0) {
+        return TRUE;
+    }
+
+    RECT rcWindow = {};
+    if (!GetWindowRect(hWnd, &rcWindow))
+        return TRUE;
+
+    RECT rcIntersection = {};
+    if (!IntersectRect(&rcIntersection, &rcWindow, &data->rcSecond))
+        return TRUE;
+
+    int overlapW = rcIntersection.right - rcIntersection.left;
+    int overlapH = rcIntersection.bottom - rcIntersection.top;
+    if (overlapW < 80 || overlapH < 80)
+        return TRUE;
+
+    data->occupied = TRUE;
+    return FALSE;
+}
+
+BOOL IsSecondScreenOccupiedByOtherApp()
+{
+    WindowEnumData data = {};
+    data.rcSecond = g_rcSecond;
+    EnumWindows(EnumWindowsOnSecondMonitorProc, reinterpret_cast<LPARAM>(&data));
+    return data.occupied;
 }
 
 // Count how many physical displays are connected (including inactive ones)
@@ -454,7 +516,7 @@ int CountPhysicalDisplays()
     return uniqueCount > 0 ? uniqueCount : 1;
 }
 
-// — Extend display mode ———————————————————————————————————————————————
+// ï¿½ Extend display mode ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 // Try the simple topology-level extend first.
 // If that fails, enumerate all CCD paths, find an inactive target that
@@ -553,17 +615,19 @@ void TryExtendAndMirror()
     SetTimer(g_hHidden, IDT_EXTEND_RETRY, EXTEND_RETRY_MS, nullptr);
 }
 
-// — Central monitor check —————————————————————————————————————————————
+// ï¿½ Central monitor check ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void CheckMonitorState()
 {
     BOOL secondNow = HasSecondMonitor(&g_rcPrimary, &g_rcSecond);
     if (secondNow && !g_bProjecting) {
-        // A second monitor appeared — cancel any pending extend and start mirroring
+        // A second monitor appeared ï¿½ cancel any pending extend and start mirroring
         if (g_bExtendPending) {
             KillTimer(g_hHidden, IDT_EXTEND_RETRY);
             g_bExtendPending = FALSE;
         }
         StartMirroring();
+    } else if (secondNow && g_bProjecting) {
+        UpdateMirrorPlacement();
     } else if (!secondNow && !g_bProjecting && !g_bExtendPending) {
         if (CountPhysicalDisplays() >= 2) {
             TryExtendAndMirror();
@@ -573,7 +637,7 @@ void CheckMonitorState()
     }
 }
 
-// — Device notification registration —————————————————————————————————
+// ï¿½ Device notification registration ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void RegisterForDeviceNotifications(HWND hWnd)
 {
     DEV_BROADCAST_DEVICEINTERFACE filter = {};
@@ -595,7 +659,7 @@ void UnregisterDeviceNotifications()
     }
 }
 
-// — Tray helpers ——————————————————————————————————————————————————————
+// ï¿½ Tray helpers ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void AddTrayIcon(HWND hWnd)
 {
     ZeroMemory(&nid, sizeof(nid));
@@ -643,12 +707,12 @@ void ShowTrayMenu(HWND hWnd)
                    L"\x2714  Neste momento a projetar");
     else
         AppendMenu(hMenu, MF_STRING | MF_DISABLED | MF_GRAYED, IDM_TRAY_STATUS,
-                   L"\x2716  Nenhum Projetor (está em modo espandir?)");
+                   L"\x2716  Nenhum Projetor (estï¿½ em modo espandir?)");
 
     if (g_bUpdateAvailable && g_szLatestVer[0] != L'\0') {
         WCHAR updateLabel[128];
         StringCchPrintfW(updateLabel, ARRAYSIZE(updateLabel),
-            L"\x2B06  Atualização disponível: v%s", g_szLatestVer);
+            L"\x2B06  Atualizaï¿½ï¿½o disponï¿½vel: v%s", g_szLatestVer);
         AppendMenu(hMenu, MF_STRING, IDM_TRAY_UPDATE, updateLabel);
     }
 
@@ -671,7 +735,7 @@ void ShowTrayMenu(HWND hWnd)
     DestroyMenu(hMenu);
 }
 
-// — Startup helpers ———————————————————————————————————————————————————
+// ï¿½ Startup helpers ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 BOOL GetAppDataExePath(WCHAR* buf, DWORD cch)
 {
     WCHAR appData[MAX_PATH];
@@ -830,7 +894,7 @@ static void UpdateStartupExeIfNeeded()
     }
 }
 
-// — ClipCursor — restrict cursor to primary monitor —----------------------------------------------
+// ï¿½ ClipCursor ï¿½ restrict cursor to primary monitor ï¿½----------------------------------------------
 void ClipCursorToPrimary(BOOL clip)
 {
     if (clip) {
@@ -845,15 +909,18 @@ void ClipCursorToPrimary(BOOL clip)
     }
 }
 
-// — Mirror start / stop ———————————————————————————————————————————————
+// ï¿½ Mirror start / stop ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void StartMirroring()
 {
     if (g_bProjecting) return;
 
-    int x = g_rcSecond.left;
-    int y = g_rcSecond.top;
-    int w = g_rcSecond.right  - g_rcSecond.left;
-    int h = g_rcSecond.bottom - g_rcSecond.top;
+    BOOL moveToPrimary = IsSecondScreenOccupiedByOtherApp();
+    const RECT& target = moveToPrimary ? g_rcPrimary : g_rcSecond;
+
+    int x = target.left;
+    int y = target.top;
+    int w = target.right  - target.left;
+    int h = target.bottom - target.top;
     if (w <= 0 || h <= 0) return;
 
     g_hMirror = CreateWindowExW(
@@ -865,16 +932,42 @@ void StartMirroring()
 
     if (!g_hMirror) return;
 
-    SetWindowPos(g_hMirror, HWND_TOPMOST,
+    SetWindowPos(g_hMirror, moveToPrimary ? HWND_NOTOPMOST : HWND_TOPMOST,
                  x, y, w, h,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
     SetTimer(g_hMirror, IDT_MIRROR_REFRESH, MIRROR_FPS_MS, nullptr);
 
     g_bProjecting = TRUE;
+    g_bMirrorOnPrimary = moveToPrimary;
     
     // Confine cursor to primary monitor instead of using hook
     ClipCursor(&g_rcPrimary);
+}
+
+void UpdateMirrorPlacement()
+{
+    if (!g_bProjecting || !g_hMirror)
+        return;
+
+    BOOL shouldMoveToPrimary = IsSecondScreenOccupiedByOtherApp();
+    if (shouldMoveToPrimary == g_bMirrorOnPrimary)
+        return;
+
+    const RECT& target = shouldMoveToPrimary ? g_rcPrimary : g_rcSecond;
+    int x = target.left;
+    int y = target.top;
+    int w = target.right  - target.left;
+    int h = target.bottom - target.top;
+    if (w <= 0 || h <= 0)
+        return;
+
+    SetWindowPos(g_hMirror,
+                 shouldMoveToPrimary ? HWND_NOTOPMOST : HWND_TOPMOST,
+                 x, y, w, h,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+    g_bMirrorOnPrimary = shouldMoveToPrimary;
 }
 
 void StopMirroring()
@@ -891,6 +984,7 @@ void StopMirroring()
     }
     FreeMirrorResources();
     g_bProjecting = FALSE;
+    g_bMirrorOnPrimary = FALSE;
 }
 
 void FreeMirrorResources()
@@ -909,7 +1003,7 @@ void FreeMirrorResources()
     g_memH = 0;
 }
 
-// — Entry point ———————————————————————————————————————————————————————
+// ï¿½ Entry point ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                       _In_opt_ HINSTANCE hPrevInstance,
                       _In_ LPWSTR    lpCmdLine,
@@ -925,8 +1019,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     g_hMutex = CreateMutexW(nullptr, TRUE, MUTEX_NAME);
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         MessageBoxW(nullptr,
-            L"O TeacherToolkit já está em execução.\n"
-            L"Feche a instância anterior primeiro.",
+            L"O TeacherToolkit jï¿½ estï¿½ em execuï¿½ï¿½o.\n"
+            L"Feche a instï¿½ncia anterior primeiro.",
             L"TeacherToolkit", MB_OK | MB_ICONWARNING);
         if (g_hMutex) CloseHandle(g_hMutex);
         return 0;
@@ -965,7 +1059,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     return (int)msg.wParam;
 }
 
-// — Window class registration —————————————————————————————————————————
+// ï¿½ Window class registration ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 ATOM RegisterHiddenClass(HINSTANCE hInstance)
 {
     WNDCLASSEXW wcex = {};
@@ -991,7 +1085,7 @@ ATOM RegisterMirrorClass(HINSTANCE hInstance)
     return RegisterClassExW(&wcex);
 }
 
-// — InitInstance — create hidden window + tray icon ———————————————————
+// ï¿½ InitInstance ï¿½ create hidden window + tray icon ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 BOOL InitInstance(HINSTANCE hInstance, int)
 {
     hInst = hInstance;
@@ -1016,7 +1110,7 @@ BOOL InitInstance(HINSTANCE hInstance, int)
     return TRUE;
 }
 
-// — Hidden window proc (tray + monitor polling) ———————————————————————
+// ï¿½ Hidden window proc (tray + monitor polling) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 LRESULT CALLBACK HiddenWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
@@ -1108,8 +1202,8 @@ LRESULT CALLBACK HiddenWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
     return 0;
 }
 
-// — Compute letterbox/pillarbox destination rect ——————————————————————
-// Returns a centered rect within (0,0,dstW,dstH) that fits srcW×srcH
+// ï¿½ Compute letterbox/pillarbox destination rect ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+// Returns a centered rect within (0,0,dstW,dstH) that fits srcWï¿½srcH
 // without distortion.
 static RECT ComputeLetterboxRect(int srcW, int srcH, int dstW, int dstH)
 {
@@ -1135,14 +1229,16 @@ static RECT ComputeLetterboxRect(int srcW, int srcH, int dstW, int dstH)
     return r;
 }
 
-// — Mirror window proc (captures primary screen + draws cursor) ———————
+// ï¿½ Mirror window proc (captures primary screen + draws cursor) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 LRESULT CALLBACK MirrorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
     case WM_TIMER:
         if (wParam == IDT_MIRROR_REFRESH) {
-            // Capture and blit directly — skip InvalidateRect/WM_PAINT overhead
+            UpdateMirrorPlacement();
+
+            // Capture and blit directly ï¿½ skip InvalidateRect/WM_PAINT overhead
             int srcW = g_rcPrimary.right  - g_rcPrimary.left;
             int srcH = g_rcPrimary.bottom - g_rcPrimary.top;
             int dstW = g_rcSecond.right   - g_rcSecond.left;
