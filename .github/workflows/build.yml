@@ -19,7 +19,7 @@ jobs:
         msbuild-architecture: x86
 
     - name: Compile the App
-      run: msbuild TeacherToolkit.sln /p:Configuration=Release /p:Platform=Win32
+      run: msbuild TeacherToolkit.sln /p:Configuration=Release /p:Platform=x86
 
     - name: Upload the .exe for download
       uses: actions/upload-artifact@v4
